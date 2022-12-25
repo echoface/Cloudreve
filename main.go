@@ -42,7 +42,11 @@ func init() {
 
 func main() {
 	// 关闭数据库连接
-	defer model.DB.Close()
+	defer func() {
+		if model.DB != nil {
+			model.DB.Close()
+		}
+	}()
 
 	if isEject {
 		// 开始导出内置静态资源文件
@@ -57,6 +61,7 @@ func main() {
 	}
 
 	api := routers.InitRouter()
+	api.TrustedPlatform = conf.SystemConfig.ProxyHeader
 	server := &http.Server{Handler: api}
 
 	// 收到信号后关闭服务器
@@ -98,7 +103,6 @@ func main() {
 			}
 		}
 
-		api.TrustedPlatform = conf.UnixConfig.ProxyHeader
 		util.Log().Info("Listening to %q", conf.UnixConfig.Listen)
 		if err := RunUnix(server); err != nil {
 			util.Log().Error("Failed to listen to %q: %s", conf.UnixConfig.Listen, err)
@@ -118,8 +122,21 @@ func RunUnix(server *http.Server) error {
 	if err != nil {
 		return err
 	}
+
 	defer listener.Close()
 	defer os.Remove(conf.UnixConfig.Listen)
+
+	if conf.UnixConfig.Perm > 0 {
+		err = os.Chmod(conf.UnixConfig.Listen, os.FileMode(conf.UnixConfig.Perm))
+		if err != nil {
+			util.Log().Warning(
+				"Failed to set permission to %q for socket file %q: %s",
+				conf.UnixConfig.Perm,
+				conf.UnixConfig.Listen,
+				err,
+			)
+		}
+	}
 
 	return server.Serve(listener)
 }

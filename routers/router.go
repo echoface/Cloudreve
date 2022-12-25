@@ -145,6 +145,15 @@ func InitMasterRouter() *gin.Engine {
 		路由
 	*/
 	{
+		// Redirect file source link
+		source := r.Group("f")
+		{
+			source.GET(":id/:name",
+				middleware.HashID(hashid.SourceLinkID),
+				middleware.ValidateSourceLink(),
+				controllers.AnonymousPermLink)
+		}
+
 		// 全局设置相关
 		site := v3.Group("site")
 		{
@@ -197,6 +206,7 @@ func InitMasterRouter() *gin.Engine {
 			// 获取用户头像
 			user.GET("avatar/:id/:size",
 				middleware.HashID(hashid.UserID),
+				middleware.StaticResourceCache(),
 				controllers.GetUserAvatar,
 			)
 		}
@@ -208,14 +218,28 @@ func InitMasterRouter() *gin.Engine {
 			file := sign.Group("file")
 			{
 				// 文件外链（直接输出文件数据）
-				file.GET("get/:id/:name", controllers.AnonymousGetContent)
+				file.GET("get/:id/:name",
+					middleware.Sandbox(),
+					middleware.StaticResourceCache(),
+					controllers.AnonymousGetContent,
+				)
 				// 文件外链(301跳转)
-				file.GET("source/:id/:name", controllers.AnonymousPermLink)
+				file.GET("source/:id/:name", controllers.AnonymousPermLinkDeprecated)
 				// 下载文件
-				file.GET("download/:id", controllers.Download)
+				file.GET("download/:id",
+					middleware.StaticResourceCache(),
+					controllers.Download,
+				)
 				// 打包并下载文件
 				file.GET("archive/:sessionID/archive.zip", controllers.DownloadArchive)
 			}
+
+			// Copy user session
+			sign.GET(
+				"user/session/copy/:id",
+				middleware.MobileRequestOnly(),
+				controllers.UserPerformCopySession,
+			)
 		}
 
 		// 从机的 RPC 通信
@@ -445,7 +469,7 @@ func InitMasterRouter() *gin.Engine {
 					// 列出文件
 					file.POST("list", controllers.AdminListFile)
 					// 预览文件
-					file.GET("preview/:id", controllers.AdminGetFile)
+					file.GET("preview/:id", middleware.Sandbox(), controllers.AdminGetFile)
 					// 删除
 					file.POST("delete", controllers.AdminDeleteFile)
 					// 列出用户或外部文件系统目录
@@ -506,6 +530,9 @@ func InitMasterRouter() *gin.Engine {
 				user.GET("storage", controllers.UserStorage)
 				// 退出登录
 				user.DELETE("session", controllers.UserSignOut)
+				// Generate temp URL for copying client-side session, used in adding accounts
+				// for mobile App.
+				user.GET("session", controllers.UserPrepareCopySession)
 
 				// WebAuthn 注册相关
 				authn := user.Group("authn",
@@ -555,9 +582,9 @@ func InitMasterRouter() *gin.Engine {
 				// 创建文件下载会话
 				file.PUT("download/:id", controllers.CreateDownloadSession)
 				// 预览文件
-				file.GET("preview/:id", controllers.Preview)
+				file.GET("preview/:id", middleware.Sandbox(), controllers.Preview)
 				// 获取文本文件内容
-				file.GET("content/:id", controllers.PreviewText)
+				file.GET("content/:id", middleware.Sandbox(), controllers.PreviewText)
 				// 取得Office文档预览地址
 				file.GET("doc/:id", controllers.GetDocPreview)
 				// 获取缩略图

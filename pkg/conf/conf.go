@@ -17,6 +17,7 @@ type database struct {
 	DBFile      string
 	Port        int
 	Charset     string
+	UnixSocket  bool
 }
 
 // system 系统通用配置
@@ -26,7 +27,8 @@ type system struct {
 	Debug         bool
 	SessionSecret string
 	HashIDSalt    string
-	GracePeriod   int `validate:"gte=0"`
+	GracePeriod   int    `validate:"gte=0"`
+	ProxyHeader   string `validate:"required_with=Listen"`
 }
 
 type ssl struct {
@@ -36,8 +38,8 @@ type ssl struct {
 }
 
 type unix struct {
-	Listen      string
-	ProxyHeader string `validate:"required_with=Listen"`
+	Listen string
+	Perm   uint32
 }
 
 // slave 作为slave存储端配置
@@ -62,6 +64,8 @@ type cors struct {
 	AllowHeaders     []string
 	AllowCredentials bool
 	ExposeHeaders    []string
+	SameSite         string
+	Secure           bool
 }
 
 var cfg *ini.File
