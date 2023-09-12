@@ -1,12 +1,15 @@
 package controllers
 
 import (
+	"context"
 	model "github.com/cloudreve/Cloudreve/v3/models"
 	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem"
+	"github.com/cloudreve/Cloudreve/v3/pkg/filesystem/fsctx"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
 	"github.com/cloudreve/Cloudreve/v3/pkg/webdav"
 	"github.com/cloudreve/Cloudreve/v3/service/setting"
 	"github.com/gin-gonic/gin"
+	"net/http"
 	"sync"
 )
 
@@ -39,6 +42,18 @@ func ServeWebDAV(c *gin.Context) {
 				fs.Root = root
 			}
 		}
+
+		// 检查是否只读
+		if application.Readonly {
+			switch c.Request.Method {
+			case "DELETE", "PUT", "MKCOL", "COPY", "MOVE":
+				c.Status(http.StatusForbidden)
+				return
+			}
+		}
+
+		// 更新Context
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), fsctx.WebDAVCtx, application))
 	}
 
 	handler.ServeHTTP(c.Writer, c.Request, fs)
@@ -60,6 +75,17 @@ func DeleteWebDAVAccounts(c *gin.Context) {
 	var service setting.WebDAVAccountService
 	if err := c.ShouldBindUri(&service); err == nil {
 		res := service.Delete(c, CurrentUser(c))
+		c.JSON(200, res)
+	} else {
+		c.JSON(200, ErrorResponse(err))
+	}
+}
+
+// UpdateWebDAVAccounts 更改WebDAV账户只读性和是否使用代理服务
+func UpdateWebDAVAccounts(c *gin.Context) {
+	var service setting.WebDAVAccountUpdateService
+	if err := c.ShouldBindJSON(&service); err == nil {
+		res := service.Update(c, CurrentUser(c))
 		c.JSON(200, res)
 	} else {
 		c.JSON(200, ErrorResponse(err))

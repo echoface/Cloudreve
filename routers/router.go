@@ -3,10 +3,12 @@ package routers
 import (
 	"github.com/cloudreve/Cloudreve/v3/middleware"
 	"github.com/cloudreve/Cloudreve/v3/pkg/auth"
+	"github.com/cloudreve/Cloudreve/v3/pkg/cache"
 	"github.com/cloudreve/Cloudreve/v3/pkg/cluster"
 	"github.com/cloudreve/Cloudreve/v3/pkg/conf"
 	"github.com/cloudreve/Cloudreve/v3/pkg/hashid"
 	"github.com/cloudreve/Cloudreve/v3/pkg/util"
+	wopi2 "github.com/cloudreve/Cloudreve/v3/pkg/wopi"
 	"github.com/cloudreve/Cloudreve/v3/routers/controllers"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
@@ -62,7 +64,7 @@ func InitSlaveRouter() *gin.Engine {
 		// 预览 / 外链
 		v3.GET("source/:speed/:path/:name", controllers.SlavePreview)
 		// 缩略图
-		v3.GET("thumb/:path", controllers.SlaveThumb)
+		v3.GET("thumb/:path/:ext", controllers.SlaveThumb)
 		// 删除文件
 		v3.POST("delete", controllers.SlaveDelete)
 		// 列出文件
@@ -258,8 +260,8 @@ func InitMasterRouter() *gin.Engine {
 				// 删除上传会话
 				upload.DELETE(":sessionId", controllers.SlaveDeleteUploadSession)
 			}
-			// OneDrive 存储策略凭证
-			slave.GET("credential/onedrive/:id", controllers.SlaveGetOneDriveCredential)
+			// Oauth 存储策略凭证
+			slave.GET("credential/:id", controllers.SlaveGetOauthCredential)
 		}
 
 		// 回调接口
@@ -306,6 +308,15 @@ func InitMasterRouter() *gin.Engine {
 				onedrive.GET(
 					"auth",
 					controllers.OneDriveOAuth,
+				)
+			}
+			// Google Drive related
+			gdrive := callback.Group("googledrive")
+			{
+				// OAuth 完成
+				gdrive.GET(
+					"auth",
+					controllers.GoogleDriveOAuth,
 				)
 			}
 			// 腾讯云COS策略上传回调
@@ -385,6 +396,22 @@ func InitMasterRouter() *gin.Engine {
 			v3.Group("share").GET("search", controllers.SearchShare)
 		}
 
+		wopi := v3.Group(
+			"wopi",
+			middleware.HashID(hashid.FileID),
+			middleware.WopiAccessValidation(wopi2.Default, cache.Store),
+		)
+		{
+			// 获取文件信息
+			wopi.GET("files/:id", controllers.CheckFileInfo)
+			// 获取文件内容
+			wopi.GET("files/:id/contents", controllers.GetFile)
+			// 更新文件内容
+			wopi.POST("files/:id/contents", middleware.WopiWriteAccess(), controllers.PutFile)
+			// 通用文件操作
+			wopi.POST("files/:id", middleware.WopiWriteAccess(), controllers.ModifyFile)
+		}
+
 		// 需要登录保护的
 		auth := v3.Group("")
 		auth.Use(middleware.AuthRequired())
@@ -404,8 +431,14 @@ func InitMasterRouter() *gin.Engine {
 				admin.GET("groups", controllers.AdminGetGroups)
 				// 重新加载子服务
 				admin.GET("reload/:service", controllers.AdminReloadService)
-				// 重新加载子服务
-				admin.POST("mailTest", controllers.AdminSendTestMail)
+				// 测试设置
+				test := admin.Group("test")
+				{
+					// 测试邮件设置
+					test.POST("mail", controllers.AdminSendTestMail)
+					// 测试缩略图生成器调用
+					test.POST("thumb", controllers.AdminTestThumbGenerator)
+				}
 
 				// 离线下载相关
 				aria2 := admin.Group("aria2")
@@ -430,7 +463,14 @@ func InitMasterRouter() *gin.Engine {
 					// 创建COS回调函数
 					policy.POST("scf", controllers.AdminAddSCF)
 					// 获取 OneDrive OAuth URL
-					policy.GET(":id/oauth", controllers.AdminOneDriveOAuth)
+					oauth := policy.Group(":id/oauth")
+					{
+						// 获取 OneDrive OAuth URL
+						oauth.GET("onedrive", controllers.AdminOAuthURL("onedrive"))
+						// 获取 Google Drive OAuth URL
+						oauth.GET("googledrive", controllers.AdminOAuthURL("googledrive"))
+					}
+
 					// 获取 存储策略
 					policy.GET(":id", controllers.AdminGetPolicy)
 					// 删除 存储策略
@@ -681,6 +721,8 @@ func InitMasterRouter() *gin.Engine {
 				webdav.POST("accounts", controllers.CreateWebDAVAccounts)
 				// 删除账号
 				webdav.DELETE("accounts/:id", controllers.DeleteWebDAVAccounts)
+				// 更新账号可读性和是否使用代理服务
+				webdav.PATCH("accounts", controllers.UpdateWebDAVAccounts)
 			}
 
 		}
